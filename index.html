@@ -210,9 +210,11 @@ button.submit:disabled{opacity:.45;cursor:not-allowed}
         body: JSON.stringify(body)
       });
       showMsg(els.ok, 'ลงทะเบียนสำเร็จ ยินดีต้อนรับคุณ ' + (profile.displayName || ''));
+      // ลงทะเบียนสำเร็จแล้ว ซ่อนปุ่มทันที กันกดซ้ำในหน้าเดิม (ไม่งั้นจะเป็น user เดียวกันหลายแถว)
+      els.submit.hidden = true;
     } catch (e) {
       showMsg(els.err, 'บันทึกไม่สำเร็จ เช็คอินเทอร์เน็ตแล้วลองใหม่');
-    } finally {
+      // เฉพาะตอนพลาดเท่านั้นที่เปิดปุ่มกลับมาให้ลองใหม่ได้
       els.submit.disabled = false;
       els.submit.textContent = 'ลงทะเบียน';
     }
