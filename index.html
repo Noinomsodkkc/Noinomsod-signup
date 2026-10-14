@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="th">
 <head>
@@ -74,7 +75,7 @@ button.submit:disabled{opacity:.45;cursor:not-allowed}
 <div class="shell">
   <p class="tag">ร้านน้อยนมสด · ลงทะเบียนรับสิทธิ์เฉพาะคุณ</p>
   <h1>ลงทะเบียนสมาชิก</h1>
-  <p class="lede">เปิดจากในแอป LINE ระบบจะรู้ตัวตนคุณอัตโนมัติ เหลือแค่กรอกเบอร์โทรครั้งเดียว ใช้เวลาไม่ถึงนาที</p>
+  <p class="lede">เปิดจากในแอป LINE ระบบจะรู้ตัวตนคุณอัตโนมัติ กดปุ่มเดียวจบ ใช้เวลาไม่ถึง 5 วินาที</p>
 
   <div class="card" id="card">
     <div class="identity">
@@ -85,21 +86,12 @@ button.submit:disabled{opacity:.45;cursor:not-allowed}
       </div>
     </div>
 
-    <div class="field">
-      <label for="f-phone">เบอร์โทรของคุณ</label>
-      <input type="tel" id="f-phone" inputmode="numeric" placeholder="08XXXXXXXX" maxlength="10">
-      <p class="hint">ใช้ผูกกับบัตรสะสมแต้ม รับสิทธิ์และโปรโมชั่นเฉพาะคุณ</p>
-    </div>
+    <p class="hint" id="src-badge" style="margin:-6px 0 14px"></p>
 
-    <div class="field">
-      <label for="f-birthday">วันเดือนปีเกิด (ไม่บังคับ)</label>
-      <input type="date" id="f-birthday">
-      <p class="hint">ไว้ส่งสิทธิพิเศษวันเกิดให้คุณ ไม่กรอกก็ลงทะเบียนได้ปกติ</p>
-    </div>
-
-    <p class="hint" style="margin:-4px 0 14px">การกดลงทะเบียน ถือว่ายินยอมให้ร้านเก็บข้อมูลนี้เพื่อมอบสิทธิประโยชน์และแจ้งโปรโมชั่นเท่านั้น</p>
+    <p class="hint" style="margin:0 0 14px">การกดลงทะเบียน ถือว่ายินยอมให้ร้านเก็บข้อมูลนี้เพื่อมอบสิทธิประโยชน์และแจ้งโปรโมชั่นเท่านั้น</p>
 
     <button class="submit" id="f-submit" type="button" disabled>กำลังเชื่อมต่อ…</button>
+    <p class="msg ok" id="msg-member" hidden>คุณเป็นสมาชิกแล้ว ✓ ไม่ต้องลงทะเบียนซ้ำ</p>
     <p class="msg ok" id="msg-ok" hidden></p>
     <p class="msg err" id="msg-err" hidden></p>
   </div>
@@ -117,14 +109,28 @@ button.submit:disabled{opacity:.45;cursor:not-allowed}
   var els = {
     av: document.getElementById('av'),
     nm: document.getElementById('nm'),
-    phone: document.getElementById('f-phone'),
-    birthday: document.getElementById('f-birthday'),
     submit: document.getElementById('f-submit'),
     ok: document.getElementById('msg-ok'),
-    err: document.getElementById('msg-err')
+    err: document.getElementById('msg-err'),
+    member: document.getElementById('msg-member'),
+    srcBadge: document.getElementById('src-badge')
   };
 
   var profile = null;
+
+  // ===================== ช่องทางที่ลิงก์/QR นี้ถูกแชร์มา =====================
+  // ตั้งค่าจาก query string ?src=onsite (QR หน้าร้าน) หรือ ?src=online (โพสต์โซเชียล/ลิงก์ออนไลน์)
+  // ไม่ใส่พารามิเตอร์มา จะถือว่าเป็น "online" โดย default
+  // ใช้แยกวัดผลว่าช่องทางไหนพาลูกค้ามาลงทะเบียนเยอะกว่ากัน และ "onsite" ยังเป็นสัญญาณว่า
+  // การลงทะเบียนครั้งนี้น่าจะเกิดใกล้เคียงกับเวลาที่ลูกค้าสแกนบัตรสะสมแต้มจริงที่หน้าร้าน
+  // (เอาไปจับคู่ด้วยเวลากับ Point Card scan log ภายหลังได้)
+  var CHANNEL = (function(){
+    try {
+      var v = new URLSearchParams(window.location.search).get('src');
+      return (v === 'onsite') ? 'onsite' : 'online';
+    } catch (e) { return 'online'; }
+  })();
+  var CHANNEL_LABEL = { onsite: 'ลงทะเบียนหน้าร้าน', online: 'ลงทะเบียนออนไลน์' };
 
   function escapeHtml(s){
     return String(s).replace(/[&<>"']/g, function(c){
@@ -136,12 +142,6 @@ button.submit:disabled{opacity:.45;cursor:not-allowed}
     els.ok.hidden = true; els.err.hidden = true;
     el.textContent = text; el.hidden = false;
     setTimeout(function(){ el.hidden = true; }, 4500);
-  }
-
-  function validate(){
-    var phone = els.phone.value.trim();
-    if (!/^[0-9]{9,10}$/.test(phone)) return 'กรอกเบอร์โทรให้ครบ 9-10 หลัก';
-    return null;
   }
 
   function setIdentity(p){
@@ -159,9 +159,34 @@ button.submit:disabled{opacity:.45;cursor:not-allowed}
     els.submit.textContent = 'ลงทะเบียน';
   }
 
+  function showAlreadyMember(){
+    // ซ่อนปุ่มลงทะเบียนไปเลย (ไม่ใช่แค่ disabled) กันลูกค้ากดซ้ำโดยไม่ตั้งใจ
+    els.submit.hidden = true;
+    els.member.hidden = false;
+  }
+
+  // ===================== เช็คว่า userId นี้เคยลงทะเบียนแล้วหรือยัง =====================
+  // ยิง GET (ไม่ใช่ no-cors) ไปที่ Apps Script ตัวเดิม แต่เติม query string ?checkUserId=...
+  // เพื่อให้อ่าน response JSON กลับมาได้จริง (GET ของ Apps Script ไม่ติดปัญหา CORS แบบ POST)
+  // ฝั่ง Apps Script ต้องมี doGet(e) ที่รับ e.parameter.checkUserId แล้วตอบ
+  // {"exists": true/false} กลับมาเป็น JSON (ดูตัวอย่างใน SETUP_GUIDE.md)
+  //
+  // fail-open: ถ้าเช็คไม่ได้ไม่ว่าเพราะอะไร (ยังไม่ได้ตั้ง doGet, เน็ตหลุด, ฯลฯ)
+  // ให้ถือว่า "ยังไม่เป็นสมาชิก" แล้วให้กดลงทะเบียนได้ตามปกติ — กันหน้าเว็บค้างเฉยๆ
+  async function checkMembership(userId){
+    if (SHEET_WEBHOOK_URL.indexOf('REPLACE_WITH') === 0) return false;
+    try {
+      var res = await fetch(SHEET_WEBHOOK_URL + '?checkUserId=' + encodeURIComponent(userId));
+      if (!res.ok) return false;
+      var data = await res.json();
+      return !!(data && data.exists);
+    } catch (e) {
+      console.error('checkMembership failed, fail-open:', e);
+      return false;
+    }
+  }
+
   async function submitSignup(){
-    var problem = validate();
-    if (problem){ showMsg(els.err, problem); return; }
     if (!profile){ showMsg(els.err, 'ยังเชื่อมต่อ LINE ไม่สำเร็จ ลองรีเฟรชหน้านี้'); return; }
     if (SHEET_WEBHOOK_URL.indexOf('REPLACE_WITH') === 0){
       showMsg(els.err, 'ยังไม่ได้ตั้งค่าปลายทางบันทึกข้อมูล (ดู SETUP_GUIDE.md)');
@@ -173,8 +198,7 @@ button.submit:disabled{opacity:.45;cursor:not-allowed}
     var body = {
       lineUserId: profile.userId,
       lineName: profile.displayName,
-      phone: els.phone.value.trim(),
-      birthday: els.birthday.value || '',
+      channel: CHANNEL,
       ts: Date.now()
     };
     try {
@@ -186,7 +210,6 @@ button.submit:disabled{opacity:.45;cursor:not-allowed}
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(body)
       });
-      els.phone.value = '';
       showMsg(els.ok, 'ลงทะเบียนสำเร็จ ยินดีต้อนรับคุณ ' + (profile.displayName || ''));
     } catch (e) {
       showMsg(els.err, 'บันทึกไม่สำเร็จ เช็คอินเทอร์เน็ตแล้วลองใหม่');
@@ -197,9 +220,9 @@ button.submit:disabled{opacity:.45;cursor:not-allowed}
   }
 
   els.submit.addEventListener('click', submitSignup);
-  els.phone.addEventListener('keydown', function(e){ if (e.key === 'Enter') submitSignup(); });
 
   async function boot(){
+    els.srcBadge.textContent = CHANNEL_LABEL[CHANNEL];
     if (LIFF_ID.indexOf('REPLACE_WITH') === 0) {
       els.nm.textContent = 'ยังไม่ได้ตั้งค่า LIFF ID (ดู SETUP_GUIDE.md)';
       return;
@@ -212,7 +235,13 @@ button.submit:disabled{opacity:.45;cursor:not-allowed}
       }
       var p = await liff.getProfile();
       setIdentity(p);
-      setReady();
+      els.submit.textContent = 'กำลังตรวจสอบสถานะสมาชิก…';
+      var isMember = await checkMembership(p.userId);
+      if (isMember) {
+        showAlreadyMember();
+      } else {
+        setReady();
+      }
     } catch (e) {
       console.error(e);
       els.nm.textContent = 'เชื่อมต่อ LINE ไม่สำเร็จ ลองเปิดหน้านี้ใหม่อีกครั้ง';
