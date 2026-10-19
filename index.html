@@ -93,6 +93,10 @@ button.submit:disabled{opacity:.45;cursor:not-allowed}
     <p class="msg ok" id="msg-member" hidden>คุณเป็นสมาชิกแล้ว ✓ ไม่ต้องลงทะเบียนซ้ำ</p>
     <p class="msg ok" id="msg-ok" hidden></p>
     <p class="msg err" id="msg-err" hidden></p>
+    <p class="msg ok" id="msg-redirect" hidden>
+      กำลังพาไปหน้าบัตรสะสมแต้ม…
+      <a id="redirect-link" href="#" style="color:inherit;text-decoration:underline">ถ้าไม่เปลี่ยนหน้าเอง กดที่นี่</a>
+    </p>
   </div>
 
   <p class="foot">มีปัญหาการใช้งาน ติดต่อพนักงานร้านได้เลย</p>
@@ -103,6 +107,11 @@ button.submit:disabled{opacity:.45;cursor:not-allowed}
   // ===================== ตั้งค่าก่อนใช้งานจริง (ดู SETUP_GUIDE.md) =====================
   var LIFF_ID = "2011759512-F4AwbXaG";                     // LIFF ID ของ OA ตัวจริง (noinomsod_kkc)
   var SHEET_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbwd8q34HU2O-AwBbbSj-y-CeRnDqwo2pO2xTTkmXc0txD0Nojm8I_zM5Vth3sRLrV90/exec";   // Sheet ของจริง (Production) — ชีตใหม่
+
+  // ลิงก์/QR ของ "บัตรสะสมแต้ม" เดิม (LINE native) — เอาไปจาก LINE OA Manager > บัตรสะสมแต้ม
+  // > การแจกบัตร > คัดลอกลิงก์บัตรสะสมแต้ม
+  // ถ้ายังไม่ใส่ (ยังเป็นค่า REPLACE_WITH...) ระบบจะข้ามการ redirect ไปเฉยๆ ไม่มีผลอะไรกับ flow เดิม
+  var POINT_CARD_URL = "https://u.lin.ee/xGZXCNb";
   // =======================================================================================
 
   var els = {
@@ -112,6 +121,8 @@ button.submit:disabled{opacity:.45;cursor:not-allowed}
     ok: document.getElementById('msg-ok'),
     err: document.getElementById('msg-err'),
     member: document.getElementById('msg-member'),
+    redirect: document.getElementById('msg-redirect'),
+    redirectLink: document.getElementById('redirect-link'),
     srcBadge: document.getElementById('src-badge')
   };
 
@@ -164,6 +175,62 @@ button.submit:disabled{opacity:.45;cursor:not-allowed}
     els.member.hidden = false;
   }
 
+  // ===================== บันทึกเวลา "แวะมาอีกรอบ" ของสมาชิกเดิม (เงียบ ๆ เบื้องหลัง) =====================
+  // ใช้ชุดข้อมูล/endpoint เดียวกับตอนลงทะเบียนครั้งแรกทุกอย่าง (doPost ฝั่ง Apps Script ไม่ต้องแก้)
+  // ต่างกันแค่ตรงนี้ไม่รอผล ไม่โชว์ error ให้ลูกค้าเห็น เพราะไม่ใช่ action ที่ลูกค้าต้องรู้ตัว
+  // ถ้าพลาดก็แค่พลาดเงียบ ๆ (ไม่กระทบ UX หลัก แค่จับคู่ประวัติรอบนี้ไม่ได้เท่านั้น)
+  function logCheckin(p){
+    if (SHEET_WEBHOOK_URL.indexOf('REPLACE_WITH') === 0) return;
+    var body = {
+      lineUserId: p.userId,
+      lineName: p.displayName,
+      channel: CHANNEL,
+      ts: Date.now()
+    };
+    fetch(SHEET_WEBHOOK_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(body)
+    }).catch(function(e){ console.error('logCheckin failed (ไม่ critical):', e); });
+  }
+
+  // ===================== พาไปหน้าบัตรสะสมแต้มต่อให้อัตโนมัติ =====================
+  // ทำแค่ตอนเปิดจาก QR "หน้าร้าน" (onsite) เท่านั้น เพราะต้องให้ลูกค้าอยู่ที่ร้านจริงถึงจะสแกน
+  // แต้มได้ตามปกติ — ถ้าเปิดจาก online (อยู่บ้าน) จะไม่พาไป ป้องกันการกดแต้มมั่วจากนอกร้าน
+  // ใช้กับทั้งคนที่เพิ่งลงทะเบียนครั้งแรก และคนที่เป็นสมาชิกแล้วแต่มาสแกน onsite อีกรอบ
+  // (เป้าหมาย: ลูกค้าสแกน QR ใบเดียว ได้ทำครบทั้ง 2 ขั้นตอนต่อเนื่องกันโดยไม่ต้องหยิบมือถือสแกนซ้ำ)
+  function goToPointCard(){
+    if (CHANNEL !== 'onsite') return;
+    if (POINT_CARD_URL.indexOf('REPLACE_WITH') === 0) return; // ยังไม่ได้ตั้งค่าลิงก์จริง ข้ามไปเฉยๆ
+
+    els.redirectLink.href = POINT_CARD_URL;
+    els.redirect.hidden = false;
+    setTimeout(function(){
+      window.location.href = POINT_CARD_URL;
+    }, 1200); // หน่วงนิดนึงให้ลูกค้าเห็นข้อความ "ลงทะเบียนสำเร็จ" ก่อน ไม่ใช่เปลี่ยนหน้าทันทีจนงง
+  }
+
+  // ===================== เช็ค/ชวนให้ "เพิ่มเป็นเพื่อน OA" ถ้ายังไม่เป็น =====================
+  // ทำไมต้องมี: liff.getProfile() ได้ userId มาแน่นอน ไม่ว่าคนนั้นจะเป็นเพื่อน OA หรือไม่ก็ตาม
+  // แต่การ "ส่งข้อความ/บรอดแคสต์โปรโมชั่น" ของ LINE Messaging API ทำได้เฉพาะคนที่เพิ่ม OA
+  // เป็นเพื่อนแล้วเท่านั้น — ถ้า userId ที่เก็บมาไม่ได้เป็นเพื่อน OA จะส่งข้อความหาเขาไม่ได้เลย
+  // ต่อให้มี userId ถูกต้องในชีตก็ตาม (เก็บมาได้ แต่ใช้ยิงแคมเปญจริงไม่ได้)
+  //
+  // ใช้ liff.getFriendship() เช็คสถานะก่อน (ต้อง LIFF SDK v2.30.0+) ถ้ายังไม่เป็นเพื่อน
+  // ค่อยเรียก liff.requestFriendship() เพื่อเด้งหน้าต่างเชิญกดเพิ่มเพื่อนให้ในแอปเลย (native ของ LINE)
+  // ไม่ await ตรงนี้ เพื่อไม่ไปบล็อกปุ่มลงทะเบียน/การเช็คสมาชิกที่ทำงานคู่กันอยู่ — ปล่อยให้มันทำงาน
+  // เบื้องหลัง พลาดก็แค่พลาดเงียบๆ (fail-open เหมือน logCheckin)
+  function ensureFriendship(){
+    if (typeof liff.getFriendship !== 'function' || typeof liff.requestFriendship !== 'function') return; // SDK เก่าไม่รองรับ ข้ามไป
+    liff.getFriendship().then(function(fr){
+      if (fr && fr.friendFlag) return; // เป็นเพื่อนอยู่แล้ว ไม่ต้องถามซ้ำให้น่ารำคาญ
+      return liff.requestFriendship({ template: { id: 'coupon' } });
+    }).catch(function(e){
+      console.error('ensureFriendship failed (ไม่ critical):', e);
+    });
+  }
+
   // ===================== เช็คว่า userId นี้เคยลงทะเบียนแล้วหรือยัง =====================
   // ยิง GET (ไม่ใช่ no-cors) ไปที่ Apps Script ตัวเดิม แต่เติม query string ?checkUserId=...
   // เพื่อให้อ่าน response JSON กลับมาได้จริง (GET ของ Apps Script ไม่ติดปัญหา CORS แบบ POST)
@@ -212,6 +279,7 @@ button.submit:disabled{opacity:.45;cursor:not-allowed}
       showMsg(els.ok, 'ลงทะเบียนสำเร็จ ยินดีต้อนรับคุณ ' + (profile.displayName || ''));
       // ลงทะเบียนสำเร็จแล้ว ซ่อนปุ่มทันที กันกดซ้ำในหน้าเดิม (ไม่งั้นจะเป็น user เดียวกันหลายแถว)
       els.submit.hidden = true;
+      goToPointCard();
     } catch (e) {
       showMsg(els.err, 'บันทึกไม่สำเร็จ เช็คอินเทอร์เน็ตแล้วลองใหม่');
       // เฉพาะตอนพลาดเท่านั้นที่เปิดปุ่มกลับมาให้ลองใหม่ได้
@@ -236,10 +304,21 @@ button.submit:disabled{opacity:.45;cursor:not-allowed}
       }
       var p = await liff.getProfile();
       setIdentity(p);
+      ensureFriendship(); // เช็ค/ชวนเพิ่มเพื่อน OA ทุกครั้งที่เปิดหน้านี้ (ไม่ว่าสมาชิกใหม่/เก่า/onsite/online)
       els.submit.textContent = 'กำลังตรวจสอบสถานะสมาชิก…';
       var isMember = await checkMembership(p.userId);
       if (isMember) {
         showAlreadyMember();
+        // เป็นสมาชิกแล้ว แต่ถ้ารอบนี้มาจาก QR "หน้าร้าน" (onsite) ให้แอบบันทึกเวลาแวะมารอบนี้
+        // เงียบ ๆ เบื้องหลัง (ไม่ต้องกดปุ่ม ไม่โชว์ฟอร์มซ้ำ) เพื่อเอา timestamp ไปจับคู่กับ
+        // Point Card scan ของมื้อนี้ทีหลัง — สำคัญมากสำหรับคนที่ลงทะเบียนจาก "online" มาก่อน
+        // (ตอนลงทะเบียน online ไม่มี Point Card scan ใกล้เคียงให้จับคู่ด้วยเลย ต้องรอมาร้านจริง
+        // แล้วสแกน onsite อีกรอบถึงจะมี timestamp ไปจับคู่ได้ — ถ้าไม่ log รอบนี้ไว้ จะ merge
+        // ประวัติเก่าไม่ได้เลยตลอดกาล เพราะปุ่มลงทะเบียนถูกซ่อนไปแล้วตั้งแต่ตรวจพบว่าเป็นสมาชิก)
+        if (CHANNEL === 'onsite') {
+          logCheckin(p);
+          goToPointCard();
+        }
       } else {
         setReady();
       }
