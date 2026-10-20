@@ -303,6 +303,7 @@ button.submit:disabled{opacity:.45;cursor:not-allowed}
         return; // liff.login() จะ redirect ออกไปเข้าสู่ระบบแล้วโหลดหน้านี้กลับมาเอง
       }
       var p = await liff.getProfile();
+      try { sessionStorage.removeItem('liff_retry_done'); } catch (e0) {} // เชื่อมต่อสำเร็จแล้ว รีเซ็ตสิทธิ์ retry ไว้เผื่อพังรอบหน้าอีก
       setIdentity(p);
       ensureFriendship(); // เช็ค/ชวนเพิ่มเพื่อน OA ทุกครั้งที่เปิดหน้านี้ (ไม่ว่าสมาชิกใหม่/เก่า/onsite/online)
       els.submit.textContent = 'กำลังตรวจสอบสถานะสมาชิก…';
@@ -324,6 +325,23 @@ button.submit:disabled{opacity:.45;cursor:not-allowed}
       }
     } catch (e) {
       console.error(e);
+
+      // ===================== กู้เอง 1 ครั้ง ถ้าเจอ token ค้างเก่าหมดอายุ =====================
+      // อาการ "invalid_request: The access token expired" เจอบ่อยเวลาเครื่องมี LINE login
+      // เก่าของ LIFF ตัวนี้ค้างอยู่ (เช่นเคยเทสหน้านี้มาก่อนหน้านี้) วิธีแก้มาตรฐานคือ
+      // liff.logout() ล้าง session เก่าทิ้ง แล้วโหลดหน้าใหม่ให้ login ใหม่ตั้งแต่ต้น
+      // กันเด้งวนไม่รู้จบ ใช้ sessionStorage เป็น flag ให้ลองแก้เองได้แค่ 1 ครั้งต่อรอบ
+      var alreadyRetried = false;
+      try { alreadyRetried = sessionStorage.getItem('liff_retry_done') === '1'; } catch (e1) {}
+      if (!alreadyRetried && typeof liff !== 'undefined' && typeof liff.logout === 'function') {
+        try {
+          sessionStorage.setItem('liff_retry_done', '1');
+          liff.logout();
+          window.location.reload();
+          return;
+        } catch (e2) { console.error('auto-retry logout failed:', e2); }
+      }
+
       // ชั่วคราวเพื่อ debug: โชว์ error จริงบนหน้าจอเลย (ปกติจะซ่อนไว้ไม่ให้ลูกค้าเห็นของแบบนี้)
       // พอหาสาเหตุเจอแล้วค่อยเอาบรรทัด errDetail ออก เหลือแค่ข้อความสั้นๆ แบบเดิม
       var errDetail = (e && (e.code || e.message)) ? (' [' + (e.code || '') + ' ' + (e.message || '') + ']') : (' [' + String(e) + ']');
