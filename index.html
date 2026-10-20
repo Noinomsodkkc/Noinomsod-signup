@@ -324,7 +324,10 @@ button.submit:disabled{opacity:.45;cursor:not-allowed}
       }
     } catch (e) {
       console.error(e);
-      els.nm.textContent = 'เชื่อมต่อ LINE ไม่สำเร็จ ลองเปิดหน้านี้ใหม่อีกครั้ง';
+      // ชั่วคราวเพื่อ debug: โชว์ error จริงบนหน้าจอเลย (ปกติจะซ่อนไว้ไม่ให้ลูกค้าเห็นของแบบนี้)
+      // พอหาสาเหตุเจอแล้วค่อยเอาบรรทัด errDetail ออก เหลือแค่ข้อความสั้นๆ แบบเดิม
+      var errDetail = (e && (e.code || e.message)) ? (' [' + (e.code || '') + ' ' + (e.message || '') + ']') : (' [' + String(e) + ']');
+      els.nm.textContent = 'เชื่อมต่อ LINE ไม่สำเร็จ ลองเปิดหน้านี้ใหม่อีกครั้ง' + errDetail;
     }
   }
 
