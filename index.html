@@ -134,10 +134,21 @@ button.submit:disabled{opacity:.45;cursor:not-allowed}
   // ใช้แยกวัดผลว่าช่องทางไหนพาลูกค้ามาลงทะเบียนเยอะกว่ากัน และ "onsite" ยังเป็นสัญญาณว่า
   // การลงทะเบียนครั้งนี้น่าจะเกิดใกล้เคียงกับเวลาที่ลูกค้าสแกนบัตรสะสมแต้มจริงที่หน้าร้าน
   // (เอาไปจับคู่ด้วยเวลากับ Point Card scan log ภายหลังได้)
+  //
+  // สำคัญ: จำค่าไว้ใน sessionStorage ด้วย เพราะเจอเคสจริงว่า liff.login() (ตอน token
+  // หมดอายุแล้วต้อง login ใหม่ หรือ auto-retry ที่เราทำเอง) บางทีพา redirect กลับมาแบบ
+  // query string ?src=onsite หายไปเฉยๆ ระหว่างทาง ถ้าไม่มี ?src ใน URL รอบนี้ ให้ลองย้อนไป
+  // ดูค่าที่เคยเจอรอบแรกตอนเข้าหน้านี้ในเซสชันเบราว์เซอร์เดียวกันก่อน แทนที่จะ fallback
+  // เป็น "online" ทันที (ไม่งั้น auto-redirect ไปหน้าบัตรจะไม่ทำงานทั้งที่สแกนจาก QR หน้าร้านจริง)
   var CHANNEL = (function(){
     try {
       var v = new URLSearchParams(window.location.search).get('src');
-      return (v === 'onsite') ? 'onsite' : 'online';
+      if (v === 'onsite' || v === 'online') {
+        sessionStorage.setItem('liff_channel', v);
+        return v;
+      }
+      var cached = sessionStorage.getItem('liff_channel');
+      return (cached === 'onsite') ? 'onsite' : 'online';
     } catch (e) { return 'online'; }
   })();
   var CHANNEL_LABEL = { onsite: 'ลงทะเบียนหน้าร้าน', online: 'ลงทะเบียนออนไลน์' };
