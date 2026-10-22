@@ -113,11 +113,14 @@ button.submit:disabled{opacity:.45;cursor:not-allowed}
   // ถ้ายังไม่ใส่ (ยังเป็นค่า REPLACE_WITH...) ระบบจะข้ามการ redirect ไปเฉยๆ ไม่มีผลอะไรกับ flow เดิม
   var POINT_CARD_URL = "https://u.lin.ee/xGZXCNb";
 
-  // หมายเหตุ: "แจกแต้มอัตโนมัติตอนลงทะเบียน" ย้ายไปทำฝั่ง Apps Script (server) แล้ว ไม่ได้ทำที่นี่
-  // (ดู apps_script_full_new.gs ตัว POINT_GRANT_URL) เหตุผล: ลิงก์แจกแต้มเปิดแล้วได้แต้มทันที
-  // ไม่ต้องสแกนกล้อง ถ้าใส่ไว้ในไฟล์นี้ (ส่งไปเบราว์เซอร์ลูกค้าทุกคน) ใครก็ "ดูซอร์สโค้ด"/เปิด
-  // dev tools แกะลิงก์ไปเปิดเองซ้ำ ๆ ได้ฟรีโดยไม่ต้องมาร้านเลย — ทำฝั่ง server แทนเพื่อไม่ให้ลิงก์
-  // หลุดออกมาถึงฝั่งลูกค้าได้เลย
+  // ลิงก์แจกแต้ม 1 แต้ม (ถอดรหัสจาก QR สะสมแต้มตัวจริงของร้าน — เทสแล้วว่าแค่เปิดลิงก์นี้จากในแอป
+  // LINE ก็ได้แต้มจริง ไม่ต้องสแกนกล้อง) ต้องทำฝั่ง client (ไฟล์นี้) เท่านั้น ทำฝั่ง Apps Script
+  // (server) ไม่ได้ เพราะเทสแล้วไม่ติด — request จากเซิร์ฟเวอร์ Google ไม่มี session ล็อกอิน LINE
+  // ของลูกค้าติดไปด้วย ระบบ LINE เลยไม่รู้จะให้แต้มใคร ต้องยิงจากเบราว์เซอร์ในแอป LINE ของลูกค้าเอง
+  // ถึงจะมี session ที่ถูกต้อง — ข้อแลกเปลี่ยนที่ต้องรับไว้คือ URL นี้จะอยู่ในซอร์สโค้ดที่ส่งไปถึง
+  // เบราว์เซอร์ลูกค้าทุกคน (เปิด dev tools ดูได้) แต่ยอมรับความเสี่ยงนี้ไว้แล้วเพราะมูลค่าแต้มต่ำ
+  // และ QR ตัวนี้มีจำกัด "1 ครั้ง/วัน" ฝั่ง LINE OA Manager อยู่แล้วด้วย (ดูคอมเมนต์ grantPoint ด้านล่าง)
+  var POINT_GRANT_URL = "https://u.lin.ee/T4YtU42";
   // =======================================================================================
 
   var els = {
@@ -186,7 +189,11 @@ button.submit:disabled{opacity:.45;cursor:not-allowed}
     els.submit.textContent = 'ลงทะเบียน';
   }
 
-  function showAlreadyMember(){
+  function showAlreadyMember(grantedPointThisVisit){
+    // ข้อความต่างกันตามว่ารอบนี้แจกแต้มให้ด้วยไหม (เฉพาะตอน onsite — ดูจุดที่เรียกใน boot())
+    els.member.textContent = grantedPointThisVisit
+      ? 'คุณเป็นสมาชิกแล้ว ✓ ได้รับ 1 แต้มสำหรับรอบนี้แล้ว!'
+      : 'คุณเป็นสมาชิกแล้ว ✓ ไม่ต้องลงทะเบียนซ้ำ';
     // ซ่อนปุ่มลงทะเบียนไปเลย (ไม่ใช่แค่ disabled) กันลูกค้ากดซ้ำโดยไม่ตั้งใจ
     els.submit.hidden = true;
     els.member.hidden = false;
@@ -210,6 +217,19 @@ button.submit:disabled{opacity:.45;cursor:not-allowed}
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(body)
     }).catch(function(e){ console.error('logCheckin failed (ไม่ critical):', e); });
+  }
+
+  // ===================== แจกแต้ม 1 แต้มแบบเงียบๆ เบื้องหลัง (ทุกรอบที่มาหน้าร้าน) =====================
+  // เรียกทั้งตอนลงทะเบียนครั้งแรก (จาก submitSignup) และตอนสมาชิกเดิมมาสแกน onsite อีกรอบ (จาก boot())
+  // — journey คือ "สแกน QR ท้ายใบเสร็จ ได้แต้มทุกครั้ง" ไม่ใช่แค่ครั้งแรกครั้งเดียวอีกต่อไป
+  // ยิงแบบ no-cors (อ่าน response กลับมาไม่ได้ ไม่ต้องรอผล ไม่บล็อก flow หลัก พลาดก็พลาดเงียบๆ)
+  // สำคัญ: ต้องเช็ค CHANNEL === 'onsite' เสมอก่อนเรียก กันแจกแต้มให้คนที่เปิดจากลิงก์ online (ไม่ได้
+  // อยู่ที่ร้านจริง)
+  function grantPoint(){
+    if (POINT_GRANT_URL.indexOf('REPLACE_WITH') === 0) return; // ยังไม่ได้ตั้งค่าลิงก์จริง ข้ามไปเฉยๆ
+    if (CHANNEL !== 'onsite') return;
+    fetch(POINT_GRANT_URL, { method: 'GET', mode: 'no-cors' })
+      .catch(function(e){ console.error('grantPoint failed (ไม่ critical):', e); });
   }
 
   // ===================== พาไปหน้าบัตรสะสมแต้มต่อให้อัตโนมัติ =====================
@@ -293,9 +313,7 @@ button.submit:disabled{opacity:.45;cursor:not-allowed}
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(body)
       });
-      // ไม่ต้องยิงขอแต้มเองตรงนี้แล้ว — ฝั่ง Apps Script (doPost) เช็คเองอยู่แล้วว่าเป็นการลงทะเบียน
-      // ใหม่จริงไหม (isNewSignup) แล้วแจก 1 แต้มให้อัตโนมัติในคำขอเดียวกันนี้เลย ฝั่งนี้แค่รอผลแล้ว
-      // โชว์ข้อความว่าสำเร็จพอ (ดู apps_script_full_new.gs)
+      grantPoint(); // ลงทะเบียนสำเร็จ แจกแต้มรอบนี้ให้เลย
       showMsg(els.ok, 'ลงทะเบียนสำเร็จ ยินดีต้อนรับคุณ ' + (profile.displayName || '') + ' 🎉 ได้ 1 แต้มแล้ว!');
       // ลงทะเบียนสำเร็จแล้ว ซ่อนปุ่มทันที กันกดซ้ำในหน้าเดิม (ไม่งั้นจะเป็น user เดียวกันหลายแถว)
       els.submit.hidden = true;
@@ -329,15 +347,17 @@ button.submit:disabled{opacity:.45;cursor:not-allowed}
       els.submit.textContent = 'กำลังตรวจสอบสถานะสมาชิก…';
       var isMember = await checkMembership(p.userId);
       if (isMember) {
-        showAlreadyMember();
+        showAlreadyMember(CHANNEL === 'onsite');
         // เป็นสมาชิกแล้ว แต่ถ้ารอบนี้มาจาก QR "หน้าร้าน" (onsite) ให้แอบบันทึกเวลาแวะมารอบนี้
         // เงียบ ๆ เบื้องหลัง (ไม่ต้องกดปุ่ม ไม่โชว์ฟอร์มซ้ำ) เพื่อเอา timestamp ไปจับคู่กับ
         // Point Card scan ของมื้อนี้ทีหลัง — สำคัญมากสำหรับคนที่ลงทะเบียนจาก "online" มาก่อน
         // (ตอนลงทะเบียน online ไม่มี Point Card scan ใกล้เคียงให้จับคู่ด้วยเลย ต้องรอมาร้านจริง
         // แล้วสแกน onsite อีกรอบถึงจะมี timestamp ไปจับคู่ได้ — ถ้าไม่ log รอบนี้ไว้ จะ merge
         // ประวัติเก่าไม่ได้เลยตลอดกาล เพราะปุ่มลงทะเบียนถูกซ่อนไปแล้วตั้งแต่ตรวจพบว่าเป็นสมาชิก)
+        // journey ใหม่: สมาชิกเดิมที่สแกน onsite ก็ได้แต้มรอบนี้ด้วย ไม่ใช่แค่ลงทะเบียนครั้งแรกครั้งเดียว
         if (CHANNEL === 'onsite') {
           logCheckin(p);
+          grantPoint();
           goToPointCard();
         }
       } else {
